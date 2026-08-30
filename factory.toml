@@ -1,0 +1,119 @@
+# factory.toml for the SWE-bench trial tenant, arm B.
+#
+# One copy per trial branch. `default_branch` names the branch it sits on,
+# because each instance's work is cut from and merged back into its own base
+# commit -- the 35 instances sit at base commits years apart and share no
+# common main. The value below is rewritten per branch by
+# scripts/apply-manifest.py; a copy still saying BRANCH has not been applied.
+#
+# Module partition follows sphinx's own package layout, not the trial's
+# instances. Doctor checks coverage at top-level tracked entries only, so every
+# top-level path across all 35 base commits appears here or in `unclaimable`.
+
+schema_version = 1
+unclaimable = [
+  # Trial and factory machinery, plus the repository's own packaging, CI and
+  # prose. Nothing an item's fix should touch.
+  "factory.toml", "factory", ".factory", ".github", ".circleci", ".travis.yml",
+  ".appveyor.yml", ".readthedocs.yml", ".codecov.yml", ".gitignore", ".flake8",
+  ".git-blame-ignore-revs", "AUTHORS", "CHANGES", "CHANGES.old",
+  "CODE_OF_CONDUCT", "CONTRIBUTING.rst", "EXAMPLES", "LICENSE", "MANIFEST.in",
+  "Makefile", "README.rst", "babel.cfg", "bindep.txt", "karma.conf.js",
+  "package.json", "package-lock.json", "pyproject.toml", "setup.cfg",
+  "setup.py", "tox.ini", "utils", "doc",
+]
+
+[factory]
+compatible = "0.3"
+
+[tenant]
+name = "swebench-trial"
+default_branch = "trial/sphinx-doc__sphinx-7889"
+
+# Scope, design and verify run in the direct session: it writes the acceptance
+# criteria and the frozen tests, and it judges. Only build is a subagent, as a
+# separate invocation with its own context, so the verify record's actor
+# differs from the build record's actor (charter section 4).
+[agents]
+scope = "direct"
+design = "direct"
+build = "engineer"
+verify = "direct"
+
+[paths]
+work = "factory/work"
+signal = "factory/signal"
+roadmap = "doc/contents.rst"
+adr_dir = "factory/decisions"
+acceptance_tests = "tests/acceptance"
+
+# One module per sphinx subpackage. `core` carries the package's own top-level
+# modules and is the fallback for a fix that lands there; it names "sphinx"
+# itself, which is what satisfies doctor's top-level coverage check.
+[modules]
+core = ["sphinx"]
+builders = ["sphinx/builders"]
+cmd = ["sphinx/cmd"]
+directives = ["sphinx/directives"]
+domains = ["sphinx/domains"]
+environment = ["sphinx/environment"]
+ext = ["sphinx/ext"]
+locale = ["sphinx/locale"]
+pycode = ["sphinx/pycode"]
+search = ["sphinx/search"]
+testing = ["sphinx/testing"]
+themes = ["sphinx/themes", "sphinx/templates", "sphinx/texinputs", "sphinx/texinputs_win"]
+transforms = ["sphinx/transforms"]
+util = ["sphinx/util"]
+writers = ["sphinx/writers"]
+suite = ["tests"]
+
+[gates.scope]
+bound = true
+
+[gates.design]
+bound = true
+
+# The build check is the baseline ratchet, not exit 0 on a green suite: no
+# instance is green at its base commit. Median across the trial's instances is
+# 128 failing tests of about 1550, in the instance's own pinned image. The
+# check asserts that this run's failures are a subset of the committed
+# baseline. Arm A's CI workflow runs the same script with the same predicate,
+# so M2 means one thing in both arms (charter section 4, arm A's gate).
+[gates.build]
+bound = true
+check = "factory/bin/ratchet --instance-from-branch"
+
+[gates.verify]
+bound = true
+
+# Deliver is the merge. There is no deploy, no rollback and no health check on
+# a trial fork, and the factory refuses a bound deliver gate without all three.
+# Left unbound deliberately: the refusal is M6 material and is recorded as
+# such, not worked around with a command that only pretends.
+[gates.deliver]
+bound = false
+check = ""
+rollback = ""
+health = ""
+rollback_rehearsed_at = ""
+
+# Observe is the oracle run, which lives outside this repository and is never
+# invoked by an agent. Unbound here for the same reason: binding it would put
+# the oracle inside the tenant.
+[gates.observe]
+bound = false
+check = ""
+cadence_hours = 24
+
+[limits]
+max_attempts_per_stage = 3
+claim_ttl_days = 14
+max_diff_lines = 600
+max_record_kb = 32
+max_artifact_words = 1500
+health_window_minutes = 15
+claim_exclusive = true
+
+[dependencies]
+allowlist = []
