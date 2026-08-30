@@ -1,0 +1,16 @@
+{
+ "instance_id": "sphinx-doc__sphinx-11445",
+ "version": "7.1",
+ "base_commit": "71db08c05197545944949d5aa76cd340e7143627",
+ "image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-11445:latest",
+ "image_digest": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-11445@sha256:fec58c84a7ccc38fdceb65528bfb6fb923f038cb1dc95de1f79c0a85e2dde4f2",
+ "suite_root": "tests",
+ "baseline_captured_at": "2026-08-30T20:28:38Z",
+ "baseline_failing": [
+  "tests/test_build_html.py::test_assets_order",
+  "tests/test_build_latex.py::test_latex_images",
+  "tests/test_theming.py::test_dark_style"
+ ],
+ "role": "core",
+ "ratchet": "sharp"
+}
