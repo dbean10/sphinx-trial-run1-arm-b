@@ -1,0 +1,22 @@
+{
+ "instance_id": "sphinx-doc__sphinx-9698",
+ "version": "4.3",
+ "base_commit": "f050a7775dfc9000f55d023d36d925a8d02ccfa8",
+ "image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9698:latest",
+ "image_digest": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9698@sha256:38120cc331db6bb9d962101a6795a515d56c8a4ace9983f17afede39fd926d5b",
+ "suite_root": "tests",
+ "baseline_captured_at": "2026-08-30T21:26:38Z",
+ "baseline_failing": [
+  "tests/test_build_latex.py::test_latex_images",
+  "tests/test_build_linkcheck.py::test_anchors_ignored",
+  "tests/test_build_linkcheck.py::test_defaults",
+  "tests/test_build_linkcheck.py::test_defaults_json",
+  "tests/test_ext_imgconverter.py::test_ext_imgconverter",
+  "tests/test_ext_viewcode.py::test_viewcode",
+  "tests/test_intl.py::test_additional_targets_should_be_translated",
+  "tests/test_intl.py::test_additional_targets_should_not_be_translated",
+  "tests/test_util_i18n.py::test_format_date"
+ ],
+ "role": "reserve",
+ "ratchet": "sharp"
+}
