@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+"""The build gate for both arms: no failure outside this instance's baseline.
+
+Charter section 4. No instance in this trial is green at its base commit --
+the median is about 128 failing tests of 1550, inside the instance's own
+pinned SWE-bench image -- so a gate keyed to exit 0 would refuse every item
+for a reason the item did not cause. This asserts instead that the tests
+failing now are a subset of the tests already failing at the base commit, and
+separately that any test named as required moved from failing to passing.
+
+Arm A's CI workflow and arm B's [gates.build].check both run this file, with
+the same arguments. M2 therefore means one thing in both arms.
+
+The baseline is committed at factory/trial/instance.json and is not editable
+by an item: the manifest declares factory/ unclaimable.
+
+usage:
+  factory/bin/ratchet                       # gate: subset assertion
+  factory/bin/ratchet --require <nodeid>... # also: these must pass
+  factory/bin/ratchet --json               # machine-readable verdict
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import shlex
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+SPEC = ROOT / "factory" / "trial" / "instance.json"
+TEST_CMD = "conda run -n testbed python -m pytest -rA"
+STATUS_RE = re.compile(r"^(PASSED|FAILED|ERROR|XFAIL|XPASS|SKIPPED)\s+(.+?)(?:\s+-\s.*)?$")
+
+
+def run(cmd, **kw):
+    p = subprocess.run(cmd, text=True, stdout=subprocess.PIPE,
+                       stderr=subprocess.STDOUT, errors="replace", **kw)
+    return p.returncode, p.stdout
+
+
+def parse(output: str) -> dict[str, str]:
+    seen = {}
+    for line in output.splitlines():
+        m = STATUS_RE.match(line.strip())
+        if not m:
+            continue
+        status, tid = m.group(1), m.group(2).strip().rstrip(":")
+        if "::" not in tid and not tid.endswith(".py"):
+            continue          # conda's own "ERROR conda.cli..." is not a test
+        seen[tid] = status
+    return seen
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="ratchet")
+    ap.add_argument("--require", nargs="*", default=[],
+                    help="node ids that must pass (the item's frozen tests)")
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--keep-log", default=None)
+    a = ap.parse_args()
+
+    if not SPEC.exists():
+        print(f"ratchet: {SPEC} is missing; this branch was not prepared by "
+              f"the trial's apply-manifest step", file=sys.stderr)
+        return 2
+    spec = json.loads(SPEC.read_text())
+    image, base, suite = spec["image"], spec["base_commit"], spec["suite_root"]
+    baseline = set(spec["baseline_failing"])
+
+    rc, _ = run(["docker", "image", "inspect", image])
+    if rc != 0:
+        run(["docker", "pull", "--platform", "linux/amd64", image])
+
+    # The tree under test reaches the image as a complete diff from the base
+    # commit. Applying `git diff --binary base HEAD` at base reproduces this
+    # tree exactly, which is all the gate judges. Uncommitted work counts:
+    # the gate must see what the stage produced, not what it committed.
+    with tempfile.TemporaryDirectory() as tmp:
+        patch = Path(tmp) / "arm.patch"
+        # A plain `git diff` omits untracked files, so a new source file -- or
+        # the regression test both arms are told to add -- would be invisible
+        # to the gate. Everything the working tree holds is staged into a
+        # throwaway index first; the real index and working tree are untouched,
+        # and .gitignore still excludes what it should.
+        idx = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
+        env = {**__import__("os").environ, **idx}
+        for cmd in (["git", "-C", str(ROOT), "read-tree", "HEAD"],
+                    ["git", "-C", str(ROOT), "add", "-A"]):
+            rc, out = run(cmd, env=env)
+            if rc != 0:
+                print(f"ratchet: {' '.join(cmd[-2:])} failed\n{out}", file=sys.stderr)
+                return 2
+        rc, diff = run(["git", "-C", str(ROOT), "diff", "--binary", "--cached", base],
+                       env=env)
+        if rc != 0:
+            print("ratchet: cannot diff against the base commit", file=sys.stderr)
+            return 2
+        patch.write_text(diff)
+
+        script = "; ".join([
+            f"set -o pipefail; cd /testbed && git checkout -q -f {shlex.quote(base)} "
+            f"&& git clean -qfd",
+            "if [ -s /tmp/arm.patch ]; then git apply --binary /tmp/arm.patch "
+            "|| git apply --binary --3way /tmp/arm.patch "
+            "|| { echo RATCHET_APPLY_FAILED; exit 90; }; fi",
+            f"{TEST_CMD} {shlex.quote(suite)} 2>&1",
+        ])
+        rc, cid = run(["docker", "create", "--platform", "linux/amd64", image,
+                       "bash", "-lc", script])
+        if rc != 0:
+            print(cid, file=sys.stderr)
+            return 2
+        cid = cid.strip().splitlines()[-1]
+        try:
+            run(["docker", "cp", str(patch), f"{cid}:/tmp/arm.patch"])
+            t0 = time.time()
+            _, out = run(["docker", "start", "-a", cid])
+            wall = time.time() - t0
+        finally:
+            run(["docker", "rm", "-f", cid])
+
+    if a.keep_log:
+        Path(a.keep_log).write_text(out)
+    if "RATCHET_APPLY_FAILED" in out:
+        print("ratchet: the working tree does not apply onto the base commit",
+              file=sys.stderr)
+        return 2
+
+    results = parse(out)
+    if not results:
+        print("ratchet: the suite reported no tests; treating as a failure "
+              "rather than a pass", file=sys.stderr)
+        return 2
+    failing = {t for t, s in results.items() if s in ("FAILED", "ERROR")}
+    new = sorted(failing - baseline)
+    fixed = sorted(baseline - failing)
+    required_failed = sorted(t for t in a.require
+                             if results.get(t) not in ("PASSED", "XFAIL"))
+
+    verdict = {
+        "instance_id": spec["instance_id"], "image": image,
+        "baseline_size": len(baseline), "reported": len(results),
+        "failing": len(failing), "new_failures": new,
+        "baseline_failures_now_passing": fixed,
+        "required": a.require, "required_failed": required_failed,
+        "wall_s": round(wall, 1),
+        "pass": not new and not required_failed,
+    }
+    if a.json:
+        print(json.dumps(verdict, indent=1))
+    else:
+        print(f"ratchet {spec['instance_id']}: {len(failing)} failing, "
+              f"baseline {len(baseline)}, {len(new)} new, "
+              f"{len(fixed)} baseline failures now passing, {wall:.0f}s")
+        for t in new[:20]:
+            print(f"  NEW FAILURE  {t}")
+        for t in required_failed:
+            print(f"  REQUIRED BUT NOT PASSING  {t}")
+    return 0 if verdict["pass"] else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
