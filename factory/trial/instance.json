@@ -1,0 +1,14 @@
+{
+ "instance_id": "sphinx-doc__sphinx-10614",
+ "version": "7.2",
+ "base_commit": "ac2b7599d212af7d04649959ce6926c63c3133fa",
+ "image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10614:latest",
+ "image_digest": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10614@sha256:455d642453b0c1ace5e25dd27f661d22c52a1d5d698b8344de1b5ebe40c077f8",
+ "suite_root": "tests",
+ "baseline_captured_at": "2026-08-30T20:23:16Z",
+ "baseline_failing": [
+  "tests/test_build_latex.py::test_latex_images"
+ ],
+ "role": "reserve",
+ "ratchet": "sharp"
+}
